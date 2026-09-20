@@ -278,6 +278,33 @@ class TestFMBPreprocessorModule1(unittest.TestCase):
         self.assertEqual(binary[50, 50], 0)    # Dark line -> 0
         self.assertEqual(binary[10, 10], 255)  # Background -> 255
 
+    def test_process_array(self):
+        raw_arr = np.ones((50, 50, 3), dtype=np.uint8) * 240
+        raw_arr[20:30, :] = 10
+        binary = self.preprocessor.process(raw_arr)
+        self.assertEqual(binary.shape, (50, 50))
+        self.assertEqual(binary[25, 25], 0)
+        self.assertEqual(binary[5, 5], 255)
+
+    def test_process_bytes(self):
+        # Read sample as raw binary bytes (like an HTTP upload)
+        with open(self.sample_file, "rb") as f:
+            raw_bytes = f.read()
+        binary = self.preprocessor.process(raw_bytes)
+        self.assertEqual(binary.shape, (100, 100))
+        self.assertEqual(binary[50, 50], 0)
+        self.assertEqual(binary[10, 10], 255)
+
+    def test_web_gis_encoding_helpers(self):
+        img_arr = np.zeros((20, 20), dtype=np.uint8)
+        png_bytes = self.preprocessor.to_png_bytes(img_arr)
+        self.assertIsInstance(png_bytes, bytes)
+        self.assertTrue(png_bytes.startswith(b"\x89PNG"))
+
+        data_uri = self.preprocessor.to_base64_data_uri(img_arr)
+        self.assertIsInstance(data_uri, str)
+        self.assertTrue(data_uri.startswith("data:image/png;base64,"))
+
 
 if __name__ == "__main__":
     unittest.main()

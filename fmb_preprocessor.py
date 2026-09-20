@@ -3,8 +3,14 @@
 Strictly handles pixel cleaning for FMB survey maps.
 Converts raw images into clean, binarized NumPy arrays (black lines on white background)
 without detecting lines or geometry.
+
+Designed as a modular, reusable component ready for:
+1. CLI file batch processing.
+2. In-memory processing pipelines (Dev A -> Dev B).
+3. Web GIS dashboard backends (FastAPI, Flask, Streamlit) accepting uploaded bytes and returning base64/PNG streams.
 """
 
+import base64
 import os
 import sys
 from pathlib import Path
@@ -67,6 +73,26 @@ class FMBPreprocessor:
 
         return image
 
+    def decode_bytes(self, image_bytes: bytes) -> np.ndarray:
+        """Decode raw image bytes (e.g. from Web GIS HTTP upload) into a NumPy array.
+
+        Args:
+            image_bytes: Raw binary bytes of the image.
+
+        Returns:
+            np.ndarray: Loaded image as a NumPy array.
+
+        Raises:
+            ValueError: If bytes cannot be decoded as an image.
+        """
+        if not image_bytes:
+            raise ValueError("Provided image bytes are empty.")
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError("Failed to decode image from binary bytes.")
+        return image
+
     def to_grayscale(self, image: np.ndarray) -> np.ndarray:
         """Convert an image NumPy array to 8-bit single-channel grayscale.
 
@@ -122,26 +148,86 @@ class FMBPreprocessor:
         )
         return binary
 
-    def process(self, image_path: Union[str, Path]) -> np.ndarray:
-        """Execute full preprocessing pipeline on an image file path.
+    def process_array(self, image: np.ndarray) -> np.ndarray:
+        """Execute preprocessing pipeline on an existing NumPy array in memory.
+
+        Args:
+            image: Raw NumPy image array.
+
+        Returns:
+            np.ndarray: Clean, binarized NumPy array.
+        """
+        gray = self.to_grayscale(image)
+        blurred = self.apply_blur(gray)
+        binary = self.apply_threshold(blurred)
+        return binary
+
+    def process_bytes(self, image_bytes: bytes) -> np.ndarray:
+        """Execute preprocessing pipeline on raw image bytes (ideal for Web GIS uploads).
+
+        Args:
+            image_bytes: Raw binary image bytes.
+
+        Returns:
+            np.ndarray: Clean, binarized NumPy array.
+        """
+        raw = self.decode_bytes(image_bytes)
+        return self.process_array(raw)
+
+    def process(self, source: Union[str, Path, bytes, np.ndarray]) -> np.ndarray:
+        """Execute full preprocessing pipeline on a file path, raw bytes, or NumPy array.
 
         Steps:
-            1. Read image using OpenCV.
+            1. Read / decode input into image array.
             2. Convert to grayscale.
             3. Apply Gaussian blur to remove noise.
             4. Apply Otsu's thresholding (black lines on white background).
 
         Args:
-            image_path: Path to the raw input image file.
+            source: Image file path, binary bytes, or NumPy array.
 
         Returns:
             np.ndarray: Clean, binarized NumPy array.
         """
-        raw = self.read_image(image_path)
-        gray = self.to_grayscale(raw)
-        blurred = self.apply_blur(gray)
-        binary = self.apply_threshold(blurred)
-        return binary
+        if isinstance(source, (str, Path)):
+            raw = self.read_image(source)
+        elif isinstance(source, bytes):
+            raw = self.decode_bytes(source)
+        elif isinstance(source, np.ndarray):
+            raw = source
+        else:
+            raise TypeError(f"Unsupported source type: {type(source)}")
+
+        return self.process_array(raw)
+
+    @staticmethod
+    def to_png_bytes(binary_image: np.ndarray) -> bytes:
+        """Encode binary image array into PNG bytes (for Web API streaming).
+
+        Args:
+            binary_image: Binarized NumPy array.
+
+        Returns:
+            bytes: Encoded PNG binary bytes.
+        """
+        success, encoded = cv2.imencode(".png", binary_image)
+        if not success:
+            raise RuntimeError("Failed to encode image to PNG format.")
+        return encoded.tobytes()
+
+    @staticmethod
+    def to_base64_data_uri(binary_image: np.ndarray) -> str:
+        """Encode binary image into a base64 Data URI (for Web GIS frontend overlays).
+
+        Args:
+            binary_image: Binarized NumPy array.
+
+        Returns:
+            str: Data URI string (e.g. 'data:image/png;base64,...').
+        """
+        png_bytes = FMBPreprocessor.to_png_bytes(binary_image)
+        b64_str = base64.b64encode(png_bytes).decode("ascii")
+        return f"data:image/png;base64,{b64_str}"
 
 
 def _is_gui_available() -> bool:
@@ -162,27 +248,20 @@ def _is_gui_available() -> bool:
 
 
 if __name__ == "__main__":
-    # Determine sample image path from arguments or default mock
-    default_sample = Path(__file__).resolve().parent / "noisy_input.png"
+    # Determine sample image path from arguments or default sample
+    project_root = Path(__file__).resolve().parent
+    default_sample = project_root / "samples" / "noisy_input.png"
+    if not default_sample.exists():
+        default_sample = project_root / "samples" / "real_fmb_input-1.png"
+
     sample_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_sample
 
     if not sample_path.exists():
-        print(f"Sample image not found at {sample_path}. Creating a quick test image...")
-        # Create a basic sample test image with a line on noisy background
+        print(f"Sample image not found at {sample_path}. Creating fallback sample...")
+        (project_root / "samples").mkdir(exist_ok=True)
         sample_img = np.ones((400, 600, 3), dtype=np.uint8) * 230
         cv2.line(sample_img, (50, 200), (550, 200), (20, 20, 20), 3)
-        cv2.polylines(
-            sample_img,
-            [np.array([[100, 100], [500, 100], [450, 300], [150, 300]], np.int32)],
-            isClosed=True,
-            color=(20, 20, 20),
-            thickness=2,
-        )
-        # Add noise
-        noise = np.random.normal(0, 15, sample_img.shape).astype(np.float32)
-        sample_img = np.clip(sample_img.astype(np.float32) + noise, 0, 255).astype(np.uint8)
         cv2.imwrite(str(sample_path), sample_img)
-        print(f"Created sample image: {sample_path}")
 
     print(f"Testing FMBPreprocessor with: {sample_path}")
     preprocessor = FMBPreprocessor()
@@ -191,10 +270,16 @@ if __name__ == "__main__":
     print(f"Result shape: {binary_result.shape}, dtype: {binary_result.dtype}")
     print(f"Unique pixel values: {np.unique(binary_result)} (0 = black lines, 255 = white background)")
 
-    # Save output preview alongside sample
-    out_preview = sample_path.with_name(f"{sample_path.stem}_binary_bw.png")
+    # Save output preview to outputs/ directory
+    output_dir = project_root / "outputs"
+    output_dir.mkdir(exist_ok=True)
+    out_preview = output_dir / f"{sample_path.stem}_binary_bw.png"
     cv2.imwrite(str(out_preview), binary_result)
     print(f"Saved binary output preview to: {out_preview}")
+
+    # Test Web GIS Dashboard export (Base64 Data URI)
+    data_uri = preprocessor.to_base64_data_uri(binary_result)
+    print(f"Generated Web GIS Base64 Data URI (length: {len(data_uri)} chars)")
 
     # Display result using cv2.imshow when a graphical display server is active
     if _is_gui_available():
@@ -206,4 +291,4 @@ if __name__ == "__main__":
         except cv2.error as e:
             print(f"cv2.imshow note: GUI display error ({e}).")
     else:
-        print("Note: Running without an active X11/GUI display. cv2.imshow skipped; binary output saved to file above.")
+        print("Note: Running without an active X11/GUI display. Output saved cleanly to disk.")
