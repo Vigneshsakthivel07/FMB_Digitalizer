@@ -1,0 +1,11 @@
+2026-09-20 16:18:20.994 IST [31] LOG:  starting PostgreSQL 18.6 (Ubuntu 18.6-1.pgdg24.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+2026-09-20 16:18:20.996 IST [31] LOG:  could not bind IPv4 address "127.0.0.1": Address already in use
+2026-09-20 16:18:20.996 IST [31] HINT:  Is another postmaster already running on port 5432? If not, wait a few seconds and retry.
+2026-09-20 16:18:20.996 IST [31] WARNING:  could not create listen socket for "localhost"
+2026-09-20 16:18:20.996 IST [31] FATAL:  could not create any TCP/IP sockets
+2026-09-20 16:18:21.002 IST [31] LOG:  database system is shut down
+2026-09-20 16:18:30.888 IST [33] LOG:  starting PostgreSQL 18.6 (Ubuntu 18.6-1.pgdg24.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+2026-09-20 16:18:30.889 IST [33] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-09-20 16:18:30.891 IST [33] LOG:  listening on Unix socket "/home/vignesh/fmb-digitizer/pg_sockets/.s.PGSQL.5433"
+2026-09-20 16:18:30.895 IST [39] LOG:  database system was shut down at 2026-09-20 16:18:16 IST
+2026-09-20 16:18:30.900 IST [33] LOG:  database system is ready to accept connections

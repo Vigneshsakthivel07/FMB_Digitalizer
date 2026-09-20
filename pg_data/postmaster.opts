@@ -1,0 +1,1 @@
+/usr/lib/postgresql/18/bin/postgres "-D" "/home/vignesh/fmb-digitizer/pg_data" "-k" "/home/vignesh/fmb-digitizer/pg_sockets" "-p" "5433"

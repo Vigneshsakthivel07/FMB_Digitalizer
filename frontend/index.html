@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FMB Cadastral Digitizer & PostGIS GIS Hub</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+              900: '#0c4a6e',
+            },
+            postgis: '#336791'
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React 18 & Babel for JSX -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
+  <div id="root" class="flex-1 flex flex-col"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function App() {
+      const [activeTab, setActiveTab] = useState('studio');
+      const [loading, setLoading] = useState(false);
+      const [progressStep, setProgressStep] = useState('');
+      const [result, setResult] = useState(null);
+      const [parcels, setParcels] = useState([]);
+      const [selectedStage, setSelectedStage] = useState('all');
+      const fileInputRef = useRef(null);
+
+      useEffect(() => {
+        if (activeTab === 'database') {
+          fetchParcels();
+        }
+      }, [activeTab]);
+
+      const fetchParcels = async () => {
+        try {
+          const res = await fetch('/api/parcels');
+          const data = await res.json();
+          setParcels(data);
+        } catch (e) {
+          console.error('Failed to fetch parcels:', e);
+        }
+      };
+
+      const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        setLoading(true);
+        setProgressStep('Uploading FMB Survey Document & Converting...');
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('survey_no', 'Upload/' + file.name.replace(/\.[^/.]+$/, ''));
+
+        try {
+          setProgressStep('Executing Module 1 (Binarization) & Module 2 (Hough Lines)...');
+          const res = await fetch('/api/digitize', {
+            method: 'POST',
+            body: formData,
+          });
+          const data = await res.json();
+          if (!data.success) throw new Error(data.message || 'Processing failed');
+          setResult(data);
+          setProgressStep('');
+        } catch (err) {
+          alert('Digitization Error: ' + err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleRunSample = async () => {
+        setLoading(true);
+        setProgressStep('Loading Real Survey 6/10A Map & Executing Pipeline...');
+        try {
+          const res = await fetch('/api/sample', { method: 'POST' });
+          const data = await res.json();
+          if (!data.success) throw new Error(data.message || 'Processing failed');
+          setResult(data);
+          setProgressStep('');
+        } catch (err) {
+          alert('Error executing survey: ' + err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const downloadGeoJSON = () => {
+        if (!result || !result.geojson) return;
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(result.geojson, null, 2));
+        const a = document.createElement('a');
+        a.href = dataStr;
+        a.download = `survey_${result.parcel.survey_no || 'parcel'}.geojson`;
+        a.click();
+      };
+
+      const downloadPostGISSQL = () => {
+        if (!result || !result.postgis_sql) return;
+        const dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(result.postgis_sql);
+        const a = document.createElement('a');
+        a.href = dataStr;
+        a.download = `survey_${result.parcel.survey_no || 'parcel'}_postgis.sql`;
+        a.click();
+      };
+
+      return (
+        <div className="flex-1 flex flex-col">
+          {/* Header */}
+          <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap justify-between items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-sky-500/10 rounded-lg border border-sky-500/20 text-sky-400">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                  Tamil Nadu FMB Cadastral Digitizer
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">React 18 + Node.js</span>
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200 border border-blue-700">PostgreSQL / PostGIS</span>
+                </h1>
+                <p className="text-xs text-slate-400">Pure Computer Vision Pipeline with Real PostGIS Spatial Persistence</p>
+              </div>
+            </div>
+
+            {/* Navigation Tabs */}
+            <nav className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+              <button
+                onClick={() => setActiveTab('studio')}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition ${
+                  activeTab === 'studio' ? 'bg-sky-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Digitizer Studio
+              </button>
+              <button
+                onClick={() => setActiveTab('database')}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition ${
+                  activeTab === 'database' ? 'bg-sky-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                PostGIS Spatial Explorer
+              </button>
+            </nav>
+          </header>
+
+          {/* Main Body */}
+          <main className="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col gap-6">
+            {activeTab === 'studio' ? (
+              <>
+                {/* Upload & Action Card */}
+                <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="space-y-1 text-center md:text-left">
+                      <h2 className="text-base font-bold text-white">Upload Real FMB Survey Map</h2>
+                      <p className="text-xs text-slate-400">
+                        Upload raw scanned PDF or PNG/JPG FMB sheets. Zero mock data: processes pixel-level geometry directly.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        accept="image/*,.pdf"
+                        className="hidden"
+                        onChange={handleFileUpload}
+                      />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={loading}
+                        className="px-5 py-2.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-slate-950 font-semibold rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-sky-500/10"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        Upload FMB Document
+                      </button>
+                      <button
+                        onClick={handleRunSample}
+                        disabled={loading}
+                        className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white font-semibold rounded-xl text-xs flex items-center gap-2 transition border border-slate-700"
+                      >
+                        <svg className="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Run Survey 6/10A
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Loading Spinner / Steps */}
+                  {loading && (
+                    <div className="mt-6 pt-6 border-t border-slate-800 flex items-center gap-3 text-xs text-sky-400 font-medium">
+                      <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
+                      <span>{progressStep}</span>
+                    </div>
+                  )}
+                </section>
+
+                {/* Metrics Summary Row */}
+                {result && (
+                  <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Survey No</div>
+                      <div className="text-xl font-bold text-sky-400 mt-1">{result.parcel.survey_no || '6/10A'}</div>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Boundary Lines</div>
+                      <div className="text-xl font-bold text-sky-400 mt-1">{result.parcel.total_lines}</div>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Corner Vertices</div>
+                      <div className="text-xl font-bold text-sky-400 mt-1">{result.parcel.total_corners}</div>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-between">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">PostGIS Status</div>
+                      <div className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 mt-1">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Stored in PostGIS Table
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                {/* Multi-Stage Visual Pipeline Comparison */}
+                {result && (
+                  <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        Pipeline Stages Visual Inspection
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={downloadGeoJSON}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition border border-slate-700 flex items-center gap-1.5"
+                        >
+                          📥 Export GeoJSON
+                        </button>
+                        <button
+                          onClick={downloadPostGISSQL}
+                          className="px-3 py-1.5 bg-blue-900/60 hover:bg-blue-800 text-blue-200 rounded-lg text-xs font-semibold transition border border-blue-700 flex items-center gap-1.5"
+                        >
+                          🐘 Export PostGIS SQL
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Stage 1: Binarized */}
+                      <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
+                        <div className="px-4 py-2.5 bg-slate-900 border-b border-slate-800 text-xs font-semibold text-slate-300">
+                          1. Module 1: Otsu Binarized
+                        </div>
+                        <div className="h-80 bg-black flex items-center justify-center p-2">
+                          <img src={result.previews.binary} alt="Binary" className="max-h-full max-w-full object-contain rounded" />
+                        </div>
+                      </div>
+
+                      {/* Stage 2: Red Lines */}
+                      <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
+                        <div className="px-4 py-2.5 bg-slate-900 border-b border-slate-800 text-xs font-semibold text-slate-300">
+                          2. Module 2: Cadastral Lines (Red)
+                        </div>
+                        <div className="h-80 bg-black flex items-center justify-center p-2">
+                          <img src={result.previews.overlay} alt="Overlay" className="max-h-full max-w-full object-contain rounded" />
+                        </div>
+                      </div>
+
+                      {/* Stage 3: Clean Outline */}
+                      <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
+                        <div className="px-4 py-2.5 bg-slate-900 border-b border-slate-800 text-xs font-semibold text-sky-400">
+                          3. Isolated Parcel Outline & Vertices
+                        </div>
+                        <div className="h-80 bg-white flex items-center justify-center p-2">
+                          <img src={result.previews.outline} alt="Outline" className="max-h-full max-w-full object-contain rounded" />
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                )}
+              </>
+            ) : (
+              /* TAB 2: PostGIS Database View */
+              <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-base font-bold text-white">PostgreSQL + PostGIS Cadastral Spatial Records</h2>
+                    <p className="text-xs text-slate-400">Geospatial parcel records stored with native geometry types.</p>
+                  </div>
+                  <button
+                    onClick={fetchParcels}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition border border-slate-700"
+                  >
+                    🔄 Refresh Records
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
+                      <tr>
+                        <th className="px-4 py-3">ID</th>
+                        <th className="px-4 py-3">Survey No</th>
+                        <th className="px-4 py-3">Location (Taluk / Village)</th>
+                        <th className="px-4 py-3">Scale</th>
+                        <th className="px-4 py-3">Boundary Segments</th>
+                        <th className="px-4 py-3">Corner Vertices</th>
+                        <th className="px-4 py-3">Timestamp</th>
+                        <th className="px-4 py-3">Download</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {parcels.length === 0 ? (
+                        <tr>
+                          <td colSpan="8" className="px-4 py-8 text-center text-slate-500">
+                            No records in PostGIS. Upload an FMB survey document to persist data.
+                          </td>
+                        </tr>
+                      ) : (
+                        parcels.map((p) => (
+                          <tr key={p.id} className="hover:bg-slate-800/50 transition">
+                            <td className="px-4 py-3 font-bold text-sky-400">#{p.id}</td>
+                            <td className="px-4 py-3 font-semibold text-white">{p.survey_no}</td>
+                            <td className="px-4 py-3">{p.taluk} / {p.village}</td>
+                            <td className="px-4 py-3">{p.scale}</td>
+                            <td className="px-4 py-3">{p.total_lines}</td>
+                            <td className="px-4 py-3">{p.total_corners}</td>
+                            <td className="px-4 py-3 text-slate-400">{p.created_at}</td>
+                            <td className="px-4 py-3">
+                              <a
+                                href={`/api/parcels/${p.id}/geojson`}
+                                target="_blank"
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded text-[11px] font-semibold transition inline-flex items-center gap-1"
+                              >
+                                GeoJSON
+                              </a>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
+
