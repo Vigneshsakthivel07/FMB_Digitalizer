@@ -1,6 +1,4 @@
-"""Backend package for FMB Digitizer."""
+"""backend package — pipeline orchestration."""
+from .pipeline import process_for_web, run_pipeline
 
-from backend.pipeline import run_pipeline, process_for_web
-
-__all__ = ["run_pipeline", "process_for_web"]
-
+__all__ = ["process_for_web", "run_pipeline"]
